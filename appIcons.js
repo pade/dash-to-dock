@@ -230,9 +230,15 @@ const MyAppIcon = new Lang.Class({
                 // Activate all window of the app or only le last used
                 if (this._dtdSettings.get_enum('click-action') == clickAction.CYCLE_WINDOWS && !Main.overview._shown) {
                     // If click cycles through windows I can activate one windows at a time
-                    let windows = getInterestingWindows(this.app);
-                    let w = windows[0];
-                    Main.activateWindow(w);
+                    // However, when using isolation, we need to open a new
+                    // window if there are no windows in the current WS
+                    let windows = getInterestingWindows(this.app, this._dtdSettings);
+                    if (windows.length == 0)
+                        this.app.open_new_window(-1);
+                    else {
+                        let w = windows[0];
+                        Main.activateWindow(w);
+                    }
                 }
                 else if (this._dtdSettings.get_enum('click-action') == clickAction.LAUNCH)
                     this.app.open_new_window(-1);
@@ -257,7 +263,7 @@ const MyAppIcon = new Lang.Class({
 
     _updateCounterClass: function() {
         let maxN = 4;
-        this._nWindows = Math.min(getInterestingWindows(this.app).length, maxN);
+        this._nWindows = Math.min(getInterestingWindows(this.app, this._dtdSettings).length, maxN);
 
         for (let i = 1; i <= maxN; i++) {
             let className = 'running' + i;
@@ -271,7 +277,7 @@ const MyAppIcon = new Lang.Class({
 
 function minimizeWindow(app, param, settings) {
     // Param true make all app windows minimize
-    let windows = getInterestingWindows(app);
+    let windows = getInterestingWindows(app, settings);
     let current_workspace = global.screen.get_active_workspace();
     for (let i = 0; i < windows.length; i++) {
         let w = windows[i];
@@ -294,7 +300,7 @@ function activateAllWindows(app, settings) {
     app.activate();
 
     // then activate all other app windows in the current workspace
-    let windows = getInterestingWindows(app);
+    let windows = getInterestingWindows(app, settings);
     let activeWorkspace = global.screen.get_active_workspace_index();
 
     if (windows.length <= 0)
@@ -316,7 +322,7 @@ function cycleThroughWindows(app, settings) {
     // since the order changes upon window interaction
     let MEMORY_TIME=3000;
 
-    let app_windows = getInterestingWindows(app);
+    let app_windows = getInterestingWindows(app, settings);
 
     if (recentlyClickedAppLoopId > 0)
         Mainloop.source_remove(recentlyClickedAppLoopId);
@@ -390,7 +396,7 @@ const MyAppIconMenu = new Lang.Class({
 
         // quit menu
         let app = this._source.app;
-        let count = getInterestingWindows(app).length;
+        let count = getInterestingWindows(app, this._dtdSettings).length;
         if ( count > 0) {
             this._appendSeparator();
             let quitFromDashMenuText = '';
@@ -402,7 +408,7 @@ const MyAppIconMenu = new Lang.Class({
             this._quitfromDashMenuItem = this._appendMenuItem(quitFromDashMenuText);
             this._quitfromDashMenuItem.connect('activate', Lang.bind(this, function() {
                 let app = this._source.app;
-                let windows = app.get_windows();
+                let windows = getInterestingWindows(app, this._dtdSettings);
                 for (let i = 0; i < windows.length; i++) {
                     this._closeWindowInstance(windows[i])
                 }
@@ -413,10 +419,19 @@ const MyAppIconMenu = new Lang.Class({
 
 // Filter out unnecessary windows, for instance
 // nautilus desktop window.
-function getInterestingWindows(app) {
-    return app.get_windows().filter(function(w) {
+function getInterestingWindows(app, settings) {
+    let windows = app.get_windows().filter(function(w) {
         return !w.skip_taskbar;
     });
+
+    // When using workspace isolation, we filter out windows
+    // that are not in the current workspace
+    if (settings.get_boolean('isolate-workspaces'))
+        windows = windows.filter(function(w) {
+            return w.get_workspace().index() == global.screen.get_active_workspace_index();
+        });
+
+    return windows;
 }
 
 /**
